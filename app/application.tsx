@@ -1314,7 +1314,7 @@ function Settings() {
             onInput={(e) => {
               customEndpoint.value = (e.target as HTMLInputElement).value;
             }}
-            placeholder="http://localhost:5001/v1"
+            placeholder="http://brainmachine:11434/v1"
           />
         </div>
       </div>

@@ -5,13 +5,17 @@ import OpenAI from "openai";
 import { persistentSignal } from "./persistentsignal";
 import { ChatType, LlmLogType } from "./types";
 
-export const DEFAULT_PRO_MODEL = "openai/gpt-4o";
-export const DEFAULT_FLASH_MODEL = "google/gemini-2.5-flash-preview-05-20";
+export const DEFAULT_PRO_MODEL = "gemma3:27b";
+export const DEFAULT_FLASH_MODEL = "gpt-oss:20b";
 export const DEFAULT_MODEL = DEFAULT_PRO_MODEL;
+
+// Ollama configuration
+export const OLLAMA_BASE_URL = "http://brainmachine:11434/v1";
+export const OLLAMA_DEFAULT_MODEL = "gemma3:27b";
 
 export const customEndpoint = persistentSignal<string | null>(
   "customEndpoint",
-  null
+  OLLAMA_BASE_URL
 );
 export const openrouterModel = persistentSignal<ModelType | null>(
   "openrouter",
@@ -27,6 +31,26 @@ export class OpenRouterError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "OpenRouterError";
+  }
+}
+
+// Utility function to check if endpoint is Ollama
+export function isOllamaEndpoint(endpoint: string | null): boolean {
+  if (!endpoint) return false;
+  return endpoint.includes("11434") || 
+         endpoint.toLowerCase().includes("ollama") ||
+         endpoint === OLLAMA_BASE_URL;
+}
+
+// Utility function to test Ollama connection
+export async function testOllamaConnection(endpoint: string = OLLAMA_BASE_URL): Promise<boolean> {
+  try {
+    const response = await fetch(endpoint.replace('/v1', '/api/tags'), {
+      method: 'GET',
+    });
+    return response.ok;
+  } catch {
+    return false;
   }
 }
 
@@ -54,12 +78,19 @@ export async function chat(request: ChatType) {
     let openai: OpenAI;
 
     if (customEndpoint.value) {
-      // Use custom endpoint
+      // Use custom endpoint (Ollama or other OpenAI-compatible API)
+      const usingOllama = isOllamaEndpoint(customEndpoint.value);
+      
       openai = new OpenAI({
         baseURL: customEndpoint.value,
-        apiKey: "dummy", // Required but not used for custom endpoints
+        apiKey: usingOllama ? "dummy" : "dummy", // Ollama doesn't require a real API key
         dangerouslyAllowBrowser: true,
       });
+      
+      // Use Ollama default model if using Ollama endpoint and no specific model selected
+      if (usingOllama && !openrouterModel.value) {
+        model = OLLAMA_DEFAULT_MODEL;
+      }
     } else {
       if (!openrouterCode.value) {
         throw new OpenRouterError(
@@ -73,7 +104,7 @@ export async function chat(request: ChatType) {
       }
 
       openai = new OpenAI({
-        baseURL: "https://openrouter.ai/api/v1",
+        baseURL: "http://brainmachine:11434/v1",
         apiKey: openrouterCode.value,
         defaultHeaders: {
           "X-Title": "Intra",
@@ -88,6 +119,7 @@ export async function chat(request: ChatType) {
     const completion = await openai.chat.completions.create({
       model: openrouterModel.value?.id || model,
       messages,
+      max_tokens: 30000,
     });
 
     if (!completion.choices[0]?.message?.content) {
